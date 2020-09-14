@@ -1,67 +1,67 @@
-const express = require("express");
+const router = require("express").Router();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const Users = require("./auth-model");
-const restrict = require("./authenticate-middleware");
+const { jwtSecret } = require("../config/secrets.js");
 
-const router = express.Router();
+const Users = require("./auth-model.js");
 
-router.post("/register", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const user = await Users.findBy({ username }).first();
+router.post("/register", validateUserContent, (req, res) => {
+  let user = req.body;
+  const hash = bcrypt.hashSync(user.password, 10); // 2 ^ n
+  user.password = hash;
 
-    if (user) {
-      return res.status(409).json({
-        message: "Username is already taken"
+  Users.add(user)
+    .then(saved => {
+      res.status(201).json({
+        saved
       });
-    }
-
-    const newUser = await Users.add({
-      username,
-      password: await bcrypt.hash(password, 14)
+    })
+    .catch(error => {
+      res.status(500).json(error);
     });
-
-    res.status(201).json(newUser);
-  } catch (err) {
-    next(err);
-  }
 });
 
-router.post("/login", async (req, res, next) => {
-  try {
-    const { username, password } = req.body;
-    const user = await Users.findBy({ username }).first();
+router.post("/login", validateUserContent, (req, res) => {
+  let { username, password } = req.body;
 
-    if (!user) {
-      return res.status(401).json({
-        message: "Invalid Credentials"
-      });
-    }
+  Users.findBy({ username })
+    .first()
+    .then(user => {
+      if (user && bcrypt.compareSync(password, user.password)) {
+        const token = generateToken(user);
 
-    const passwordValid = await bcrypt.compare(password, user.password);
-
-    if (!passwordValid) {
-      return res.status(401).json({
-        message: "Invalid Credentials"
-      });
-    }
-
-    const token = jwt.sign(
-      {
-        userID: user.id
-      },
-      process.env.JWT_SECRET
-    );
-
-    res.cookie("token", token);
-
-    res.json({
-      message: `Welcome ${user.username}!`
+        res.status(200).json({
+          message: `Welcome ${user.username}!`,
+          token
+        });
+      } else {
+        res.status(401).json({ message: "Invalid Credentials" });
+      }
+    })
+    .catch(error => {
+      res.status(500).json(error);
     });
-  } catch (err) {
-    next(err);
-  }
 });
+
+function generateToken(user) {
+  const payload = {
+    subject: user.id,
+    username: user.username
+  };
+  const options = {
+    expiresIn: "10d"
+  };
+  return jwt.sign(payload, jwtSecret, options);
+}
+
+function validateUserContent(req, res, next) {
+  if (!req.body.username || !req.body.password) {
+    res
+      .status(400)
+      .json({ message: "Username & password fields are required." });
+  } else {
+    next();
+  }
+}
 
 module.exports = router;

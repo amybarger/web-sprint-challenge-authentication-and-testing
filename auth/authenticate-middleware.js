@@ -4,39 +4,23 @@
 */
 
 const jwt = require("jsonwebtoken");
+const { jwtSecret } = require("../config/secrets");
 
-function restrict(role) {
-  const roles = ["basic", "admin", "super_admin"];
+// checking if user is authorized by verifying token is in request header
 
-  return async (req, res, next) => {
-    const authError = {
-      message: "Invalid credentials"
-    };
+module.exports = (req, res, next) => {
+  const token = req.headers.authorization;
 
-    try {
-      const token = req.cookies.token;
-      if (!token) {
-        return res.status(401).json(authError);
-      }
-
-      jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-        if (err) {
-          return res.status(401).json(authError);
-        }
-
-        if (role && roles.indexOf(decoded.userRole) < roles.indexOf(role)) {
-          return res.status(403).json({
-            message: "You are not allowed here"
-          });
-        }
-        req.token = decoded;
-
+  if (token) {
+    jwt.verify(token, jwtSecret, (err, decodedToken) => {
+      if (err) {
+        res.status(401).json({ message: "Invalid Credentials" });
+      } else {
+        req.decodedToken = decodedToken;
         next();
-      });
-    } catch (err) {
-      next(err);
-    }
-  };
-}
-
-module.exports = restrict;
+      }
+    });
+  } else {
+    res.status(400).json({ message: "No credentials provided" });
+  }
+};
